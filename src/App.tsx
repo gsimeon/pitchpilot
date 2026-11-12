@@ -83,6 +83,12 @@ export default function App() {
   };
 
   const start = async (recordAudio: boolean) => {
+    if (typeof window === "undefined" || !window.pitchPilot || !window.__smartspectraBridge) {
+      throw new Error(
+        "Live AI rehearsal requires the PitchPilot desktop app to run native camera models. " +
+        "Download the Windows executable from GitHub releases, or switch to the Analytics dashboard to inspect rehearsal logs."
+      );
+    }
     if (!apiKey) throw new Error("Add your SmartSpectra API key to .env.local as VITE_PRESAGE_API_KEY, then restart the app.");
     setSignal("waiting");
     setExpression(null);
@@ -220,12 +226,16 @@ export default function App() {
       setExpression(null);
       setFaceFraming(null);
       setQualityHint(null);
-      await window.pitchPilot.endSession();
+      if (window.pitchPilot) await window.pitchPilot.endSession();
     }
   };
 
   const exportCsv = async () => {
     try {
+      if (!window.pitchPilot) {
+        setExportNotice("Exporting via native save dialog is available in the desktop app.");
+        return;
+      }
       const result = await window.pitchPilot.exportCsv(logRowsRef.current);
       setExportNotice(result.saved ? `Saved ${result.fileName ?? "CSV file"}.` : "Export cancelled.");
     } catch (error) {

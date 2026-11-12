@@ -15,7 +15,7 @@ export interface PerformanceLogRow {
 declare global {
   interface Window {
     /** Narrow app bridge from electron/preload.cjs; never expose ipcRenderer itself. */
-    pitchPilot: {
+    pitchPilot?: {
       beginSession(options?: { microphone?: boolean }): Promise<{
         ok: true;
         camera: true;
@@ -24,5 +24,6 @@ declare global {
       endSession(): Promise<{ ok: true }>;
       exportCsv(rows: PerformanceLogRow[]): Promise<{ saved: boolean; fileName?: string }>;
     };
+    __smartspectraBridge?: unknown;
   }
 }

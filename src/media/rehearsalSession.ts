@@ -29,6 +29,7 @@ export async function startRehearsalSession({
   onMicrophoneError,
 }: StartRehearsalOptions): Promise<ActiveRehearsal> {
   let microphoneStream: MediaStream | null = null;
+  if (!window.pitchPilot) throw new Error("PitchPilot desktop bridge is required.");
   await window.pitchPilot.beginSession({ microphone: microphoneConsent });
 
   try {
@@ -50,7 +51,7 @@ export async function startRehearsalSession({
   } catch (error) {
     try { await sdk.stop(); } catch { /* SDK may not have reached Running. */ }
     try { sdk.destroy?.(); } catch { /* best-effort native teardown. */ }
-    await window.pitchPilot.endSession();
+    if (window.pitchPilot) await window.pitchPilot.endSession();
     throw error;
   }
 }
@@ -64,6 +65,6 @@ export async function stopRehearsalSession(
     await sdk.stop();
   } finally {
     active?.microphoneStream?.getTracks().forEach((track) => track.stop());
-    try { sdk.destroy?.(); } finally { await window.pitchPilot.endSession(); }
+    try { sdk.destroy?.(); } finally { if (window.pitchPilot) await window.pitchPilot.endSession(); }
   }
 }
