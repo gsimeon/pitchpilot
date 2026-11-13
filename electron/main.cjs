@@ -7,6 +7,55 @@ const fsSync = require('node:fs');
 const fs = require('node:fs/promises');
 const { fileURLToPath } = require('node:url');
 const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
+
+// Ensure SMARTSPECTRA_CAPI_PATH is set before requiring the SDK in packaged builds.
+// When packaged into ASAR, native dlopen/LoadLibrary calls cannot load shared libraries
+// directly from inside app.asar. They must be loaded from app.asar.unpacked.
+const LIB_BASENAME = {
+  darwin: 'libsmartspectra_capi.dylib',
+  linux:  'libsmartspectra_capi.so',
+  win32:  'smartspectra_capi.dll',
+};
+
+function setupSmartSpectraCapiPath() {
+  if (process.env.SMARTSPECTRA_CAPI_PATH) return;
+
+  const libName = LIB_BASENAME[process.platform];
+  if (!libName) return;
+
+  const platformPkg = `@smartspectra/node-sdk-${process.platform}-${process.arch}`;
+  const candidates = [];
+
+  if (process.resourcesPath) {
+    candidates.push(
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', platformPkg, libName),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@smartspectra', `node-sdk-${process.platform}-${process.arch}`, libName)
+    );
+  }
+
+  try {
+    const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : '';
+    if (appPath && appPath.includes('.asar')) {
+      const unpackedApp = appPath.replace(/\.asar$/, '.asar.unpacked');
+      candidates.push(
+        path.join(unpackedApp, 'node_modules', platformPkg, libName),
+        path.join(unpackedApp, 'node_modules', '@smartspectra', `node-sdk-${process.platform}-${process.arch}`, libName),
+        path.join(path.dirname(unpackedApp), 'app.asar.unpacked', 'node_modules', platformPkg, libName),
+        path.join(path.dirname(unpackedApp), 'app.asar.unpacked', 'node_modules', '@smartspectra', `node-sdk-${process.platform}-${process.arch}`, libName)
+      );
+    }
+  } catch {}
+
+  for (const candidate of candidates) {
+    if (fsSync.existsSync(candidate)) {
+      process.env.SMARTSPECTRA_CAPI_PATH = candidate;
+      break;
+    }
+  }
+}
+
+setupSmartSpectraCapiPath();
+
 const { bindSmartSpectraIpc } = require('@smartspectra/node-sdk/main');
 const { buildPerformanceCsv } = require('./csvExport.cjs');
 

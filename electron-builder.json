@@ -12,7 +12,11 @@
   "asar": true,
   "asarUnpack": [
     "**/node_modules/koffi/**/*",
-    "**/*.node"
+    "**/node_modules/@smartspectra/**/*",
+    "**/*.node",
+    "**/*.dll",
+    "**/*.dylib",
+    "**/*.so*"
   ],
   "win": {
     "target": [

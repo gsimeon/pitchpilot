@@ -49,6 +49,7 @@ export default function App() {
   const audioRecorderRef = useRef<LocalAudioRecorder | null>(null);
   const sessionStartRef = useRef<number | null>(null);
   const logRowsRef = useRef<PerformanceLogRow[]>([]);
+  const signalWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [signal, setSignal] = useState<RehearsalSignal>("waiting");
   const [expression, setExpression] = useState<{ label: string; confidence: number } | null>(null);
@@ -62,6 +63,7 @@ export default function App() {
 
   useEffect(() => () => {
     if (recording?.objectUrl) URL.revokeObjectURL(recording.objectUrl);
+    if (signalWatchdogRef.current) clearTimeout(signalWatchdogRef.current);
   }, [recording?.objectUrl]);
 
   const appendLog = (event: string, values: Partial<PerformanceLogRow> = {}) => {
@@ -115,8 +117,15 @@ export default function App() {
       setCameraStream(stream);
     });
 
-    sdk.on("validationStatus", (_code, _timestampUs, hint) => {
-      if (sdkRef.current === sdk) setQualityHint(hint || null);
+    sdk.on("validationStatus", (code, _timestampUs, hint) => {
+      if (sdkRef.current !== sdk) return;
+      setQualityHint(hint || null);
+      // When tracking is invalid or face is lost, clear live cues immediately
+      if (code !== 0) {
+        setSignal("waiting");
+        setExpression(null);
+        setFaceFraming(null);
+      }
     });
 
     sdk.on("metrics", (buffer) => {
@@ -124,9 +133,26 @@ export default function App() {
       try {
         const metrics = decodeMetrics(buffer);
         const face = metrics.face;
+
+        // Reset the watchdog timer: if samples stop arriving for > 1500ms, clear stale feedback
+        if (signalWatchdogRef.current) clearTimeout(signalWatchdogRef.current);
+        signalWatchdogRef.current = setTimeout(() => {
+          if (sdkRef.current === sdk) {
+            setSignal("waiting");
+            setExpression(null);
+            setFaceFraming(null);
+          }
+        }, 1500);
+
         const latestTalking = face?.talking?.at(-1);
-        const stableTalking = latestTalking?.stable ? (latestTalking.detected ? "speaking" : "pause") : "";
-        if (stableTalking) setSignal(stableTalking);
+        const isTalkingStable = Boolean(latestTalking?.stable);
+        const stableTalking = isTalkingStable ? (latestTalking!.detected ? "speaking" : "pause") : "";
+        if (isTalkingStable) {
+          setSignal(stableTalking as RehearsalSignal);
+        } else {
+          // Clear speaking state when samples become unstable
+          setSignal("waiting");
+        }
 
         const latestExpression = face?.expression?.at(-1);
         const scores = (latestExpression?.scores ?? []).flatMap((item) =>
@@ -134,18 +160,27 @@ export default function App() {
             ? [{ type: item.type, confidence: item.confidence }]
             : [],
         );
-        const top = latestExpression?.stable && scores.length > 0
+        const isExpressionStable = Boolean(latestExpression?.stable && scores.length > 0);
+        const top = isExpressionStable
           ? scores.reduce((best, item) => item.confidence > best.confidence ? item : best)
           : null;
         const expressionLabel = top ? expressionNames[top.type] ?? "" : "";
-        if (expressionLabel && top) setExpression({ label: expressionLabel, confidence: top.confidence });
+        if (expressionLabel && top) {
+          setExpression({ label: expressionLabel, confidence: top.confidence });
+        } else {
+          // Clear expression label when samples become unstable or confidence is lost
+          setExpression(null);
+        }
 
         const latestLandmarks = face?.landmarks?.at(-1);
         let framing = "";
         if (latestLandmarks?.stable && !latestLandmarks.reset && latestLandmarks.value?.length) {
           const settings = streamRef.current?.getVideoTracks()[0]?.getSettings();
           framing = getFaceFraming(latestLandmarks.value, settings?.width ?? 1280, settings?.height ?? 720) ?? "";
-          if (framing) setFaceFraming(framing);
+          setFaceFraming(framing || null);
+        } else {
+          // Clear face framing when landmarks become unstable or reset
+          setFaceFraming(null);
         }
 
         if (stableTalking || expressionLabel) {
@@ -176,6 +211,13 @@ export default function App() {
         setIsAudioRecording(true);
       }
     } catch (error) {
+      if (signalWatchdogRef.current) {
+        clearTimeout(signalWatchdogRef.current);
+        signalWatchdogRef.current = null;
+      }
+      setSignal("waiting");
+      setExpression(null);
+      setFaceFraming(null);
       sdkRef.current = null;
       streamRef.current = null;
       setCameraStream(null);
@@ -191,6 +233,10 @@ export default function App() {
   };
 
   const stop = async () => {
+    if (signalWatchdogRef.current) {
+      clearTimeout(signalWatchdogRef.current);
+      signalWatchdogRef.current = null;
+    }
     const sdk = sdkRef.current;
     sdkRef.current = null;
     streamRef.current = null;
