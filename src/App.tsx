@@ -212,7 +212,17 @@ export default function App() {
     sdk.on("error", (code, message) => {
       if (sdkRef.current !== sdk) return;
       setSignal("unavailable");
-      setErrorMessage(`SmartSpectra error ${code}: ${message}`);
+      if (code === 8) {
+        const elapsedSec = sessionStartRef.current ? Math.round((Date.now() - sessionStartRef.current) / 1000) : 0;
+        const isPlaceholderKey = apiKey.startsWith("WSy0G9KG");
+        let explanation = `SmartSpectra error ${code}: ${message}`;
+        if (isPlaceholderKey || elapsedSec >= 20) {
+          explanation += " — Presage cloud usage verification timed out or rejected the API key after the initial grace window. Provide a valid VITE_PRESAGE_API_KEY in .env.local.";
+        }
+        setErrorMessage(explanation);
+      } else {
+        setErrorMessage(`SmartSpectra error ${code}: ${message}`);
+      }
       appendLog("sdk_error", { speechActivity: `${code}: ${message}` });
     });
 
