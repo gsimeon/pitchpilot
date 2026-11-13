@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { SmartSpectraSDK, faceMetrics } from "@smartspectra/node-sdk/renderer";
+import { SmartSpectraSDK, MetricType, faceMetrics } from "@smartspectra/node-sdk/renderer";
 import { decodeMetrics } from "@smartspectra/node-sdk/messages";
 import { PitchPilotRehearsal, type RehearsalSignal } from "./components/PitchPilotRehearsal";
 import { startLocalAudioRecorder, type LocalAudioRecorder } from "./media/localAudio";
 import type { PerformanceLogRow } from "./types/pitchpilot";
 import LocalAnalyticsDashboard from "./analytics/LocalAnalyticsDashboard";
+
+// Core face metrics (landmarks for framing, blink tracking, and mouth talking) use
+// locally bundled models that execute on all hardware without encrypted model delivery (EMD).
+// Expressions model requires hardware-backed EMD (TPM/CNG) which can be enabled via VITE_ENABLE_EXPRESSIONS=true.
+const coreFaceMetrics = [
+  MetricType.FACE_LANDMARKS,
+  MetricType.BLINKING,
+  MetricType.TALKING,
+];
+const allFaceMetrics = [...faceMetrics];
 
 const expressionNames: Record<number, string> = {
   1: "Angry", 2: "Contempt", 3: "Disgust", 4: "Fear",
@@ -104,9 +114,12 @@ export default function App() {
     sessionStartRef.current = Date.now();
     appendLog("session_started", { event: recordAudio ? "session_started_with_audio_opt_in" : "session_started" });
 
+    const enableExpressions = import.meta.env.VITE_ENABLE_EXPRESSIONS === "true";
+    const requestedMetrics = enableExpressions ? allFaceMetrics : coreFaceMetrics;
+
     const sdk = new SmartSpectraSDK({
       apiKey,
-      requestedMetrics: [...faceMetrics],
+      requestedMetrics,
       enableTelemetry: false,
     });
     sdkRef.current = sdk;
